@@ -1,0 +1,2 @@
+dave-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c dave.yaml
+dave-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c dave.yaml

@@ -1,0 +1,7 @@
+# See <https://www.ruby-forum.com/t/forcing-stdout-sync-for-scripts/48876/8>
+alice-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c alice.yaml
+alice-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c alice.yaml
+bob-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c bob.yaml
+bob-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c bob.yaml
+chuck-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c chuck.yaml
+chuck-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c chuck.yaml

@@ -1,0 +1,88 @@
+* Project 2
+** config files
+   make configuration files for alice, bob and chuck with unique ports
+   and uris for their associated adapter and tuplespace
+
+   - [X] alice.yaml
+   - [X] bob.yaml
+   - [X] chuck.yaml
+
+
+** write a logging/recovery server
+   we need to write a server in python that joins the multicast group
+   for tuplespaces and logs all *write* and *take* events. On receipt of a
+   *start* event, the server should replay all the write and take events
+   to restore the state of the tuplespace (i.e to recover the state of
+   a tuplespace if it fails, or if a new client wants to join the
+   multicast group)
+
+   - [X] server joins multicast group
+   - [X] server logs all *write* and *take* events to disk
+   - [X] server replays write and take events on receipt of *adapter* event
+     - [X] read the event in from file
+     - [X] parse the message string into the proper tuplespace
+
+
+** write a command-line client for posting messages to microblog
+   user should invoke a *command line client* with their username, topic
+   and message which will write out to their tuplespace. users should
+   be *dynamically resolved*
+
+   e.g $ mblog alice distsys "foo"
+
+   - [X] cli client program
+     - [X] post messages to all user's tuplespaces
+
+   - [X] naming server
+     - [X] logs to own tuplespace
+       - [X] own XML-RPC adapter
+     - [X] watch for tuplespace start
+       - [X] record the endpoint
+     - [X] watch for adapter start
+       - [X] record the endpoint
+     - [X] maintains a list of users it has seen thus far (assumed
+       active members)
+       - [X] should be persisted by means of the tuplespace
+         - e.g (("users", ["alice", "bob", "chuck"]))
+     - [X] remove usage of _rdall
+       - [X] change to tuple of form ("users", [user..])
+       - [X] on request from client, send over users tuple
+
+
+* Project 3
+
+  This project will have us identifying and fully characterizing two
+  of the problems we encountered when inmplementing the distributed
+  microblog platform.
+
+  The report should outline the following for each problem:
+
+  - what the problem is
+  - what triggers the problem, and how to reproduce it
+  - what impact the problem has on the system
+  - what the correct behavior should have been
+
+  For both problems we choose to address, identify an
+  algorithm/technique from chapters 6-8 in the book, including but not
+  limited to:
+
+  - total-ordered multicast
+  - [[wiki:Leader_election][leader election]]
+    - can help us elect peers with elevated responsibilities (e.g a
+      coordinator for determining message order, recovery server, etc.)
+
+    - three conditions for an election algorithm
+      1. termination
+         the algorithm terminates in a finite time once leader is
+         selected
+
+      2. uniqueness
+         there is only one leader at the end of the algorithm
+
+      3. agreement
+         all processes know who the leader is
+
+  - client-based (pull) methods
+  - local-write protocols
+  - consensus algorithms
+  - failure detection

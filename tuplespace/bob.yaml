@@ -1,0 +1,21 @@
+---
+name: bob
+uri: druby://localhost:30000
+notify:
+  - address: 224.0.0.1
+    port: 54321
+  - address: 224.0.0.1
+    port: 54322
+  - address: 224.0.0.1
+    port: 54323
+  - address: 224.0.0.1
+    port: 54324
+filters:
+  - [ ~, ~ ]
+  - [ ~, ~, ~]
+  - [ ~, ~, ~, ~]
+  - [ ~, ~, ~, ~, ~]
+adapter:
+  host: localhost
+  port: 8081
+  max_clients: 32
