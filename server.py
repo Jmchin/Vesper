@@ -26,7 +26,6 @@ def value_get():
 @app.route("/request", methods=['PUT'])
 def value_put():
     payload = request.json["payload"]
-    print(payload)
     reply = {"code": 'fail'}
 
     if n.status == LEADER:
@@ -75,21 +74,11 @@ if __name__ == "__main__":
         with open(ip_list_file) as f:
             for ip in f:
                 ip_list.append(ip.strip())
-        line = ip_list.pop(index)
-        fellows = []
+        my_ip = ip_list.pop(index)
 
-        my_ip = line.split(",")[0]
-        proxy_uri = line.split(",")[1]
-
-        print(my_ip)
         http, host, port = my_ip.split(':')
-
-        for l in ip_list:
-            li = l.split(",")
-            fellows.append(li[0])
-
-                # initialize node with ip list and its own ip
-        n = Node(fellows, my_ip, proxy_uri)
+        # initialize node with ip list and its own ip
+        n = Node(ip_list, my_ip)
         app.run(host="0.0.0.0", port=int(port), debug=False)
     else:
         print("usage: python server.py <index> <ip_list_file>")
