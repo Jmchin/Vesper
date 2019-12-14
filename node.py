@@ -2,18 +2,29 @@ import threading
 import time
 import utils
 from config import cfg
+from tuplespace.proxy import TupleSpaceAdapter
 
 FOLLOWER = 0
 CANDIDATE = 1
 LEADER = 2
 
+# TODO: integrate the tuplespace, should be able to attach to one by
+# adding additional information to the ip_list.txt for an endpoint to
+# connect to a tuplespace adapter proxy
+
+# Will need to deeply integrate the tuplespace into the code, so might
+# take some finaggling
+
+# First, let's assume that there are tuplespaces/adapater pairs up. We
+# will instantiate a tuplespace proxy adapter, and use that as our
+# database object, rather than a key-value store
 
 class Node():
-    def __init__(self, fellow, my_ip):
+    def __init__(self, fellow, my_ip, proxy_uri):
         self.addr = my_ip
         self.fellow = fellow
         self.lock = threading.Lock()
-        self.DB = {}
+        self.DB = TupleSpaceAdapter(proxy_uri)
         self.log = []
         self.staged = None
         self.term = 0
@@ -219,12 +230,8 @@ class Node():
 
     def handle_get(self, payload):
         print("getting", payload)
-        key = payload["key"]
-        if key in self.DB:
-            payload["value"] = self.DB[key]
-            return payload
-        else:
-            return None
+        pattern = payload["pattern"]
+        return self.DB._rdp(pattern)
 
     # takes a message and an array of confirmations and spreads it to the followers
     # if it is a comit it releases the lock
@@ -277,12 +284,12 @@ class Node():
         print("majority reached, replied to client, sending message to commit")
         return True
 
-    # put staged key-value pair into local database
     def commit(self):
         self.commitIdx += 1
         self.log.append(self.staged)
-        key = self.staged["key"]
-        value = self.staged["value"]
-        self.DB[key] = value
+        user = self.staged["user"]
+        topic = self.staged["topic"]
+        content = self.staged["content"]
+        self.DB._out((user, topic, content))
         # empty the staged so we can vote accordingly if there is a tie
         self.staged = None

@@ -1,3 +1,4 @@
+import argparse
 import sys, requests
 
 
@@ -36,39 +37,49 @@ def redirectToLeader(server_address, message):
     # else:
     #     return response
 
-
-# client put request
-def put(addr, key, value):
+def put(addr, user, topic, content):
     server_address = addr + "/request"
-    payload = {'key': key, 'value': value}
+    payload = {'user': user, 'topic': topic, 'content': content}
     message = {"type": "put", "payload": payload}
     # redirecting till we find the leader, in case of request during election
     print(redirectToLeader(server_address, message))
 
-
 # client get request
-def get(addr, key):
+# def get(addr, key):
+#     server_address = addr + "/request"
+#     payload = {'key': key}
+#     message = {"type": "get", "payload": payload}
+#     # redirecting till we find the leader, in case of request during election
+#     print(redirectToLeader(server_address, message))
+
+def get(addr, tupl):
     server_address = addr + "/request"
-    payload = {'key': key}
+    payload = {"pattern": tupl}
     message = {"type": "get", "payload": payload}
-    # redirecting till we find the leader, in case of request during election
     print(redirectToLeader(server_address, message))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        # addr, key
-        # get
+    if sys.argv[2] == "get":
         addr = sys.argv[1]
-        key = sys.argv[2]
-        get(addr, key)
-    elif len(sys.argv) == 4:
+        tupl = tuple(sys.argv[3:])
+        print(addr)
+        print(tupl)
+        get(addr, tupl)
+    # if len(sys.argv) == 3:
+    #     # addr, key
+    #     # get
+    #     addr = sys.argv[1]
+    #     tupl = sys.argv[2]
+    #     get(addr, tupl)
+    elif len(sys.argv) == 5:
         # addr, key value
         # put
         addr = sys.argv[1]
-        key = sys.argv[2]
-        val = sys.argv[3]
-        put(addr, key, val)
+        user = sys.argv[2]
+        topic = sys.argv[3]
+        channel = sys.argv[4]
+        put(addr, user, topic, channel)
     else:
         print("PUT usage: python3 client.py address 'key' 'value'")
         print("GET usage: python3 client.py address 'key'")
