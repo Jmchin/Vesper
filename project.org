@@ -1,0 +1,429 @@
+#+TITLE: CPSC 551 - Project 3
+#+AUTHOR: Justin Chin, Daniel Miranda
+
+
+* TODOS
+** TODO Implement Raft Consensus Algorithm
+*** TODO Replicated Log
+**** TODO Mark indexed entries as committed in a monotonic manner when majority satisfied
+*** TODO Consensus Module
+*** TODO Leader Election
+*** TODO Connect Tuplespace/Adapters to act as State Machine
+*** TODO Decide on a Transport protocol for communicating between servers in the cluster
+* PROBLEMS
+  It seems like the zmq REQ/REP model may be problematic, because each
+  sock.connect() call is blocking. Can we switch to an asynchronous model?
+* Ideas
+  - use zmq pub-sub sockets
+    - client nodes will *subscribe* to some leader node, so that all
+      messages are passed through a single point of control, allowing
+      us to agree on messages and their ordering
+    - leader node will *publish* data which clients will receive
+    - when a client wants to write to the platform, they will *PUSH*
+      their message contents to the leader
+      - the leader will queue the event, and then replicate it across
+        its subscribers
+        - once a majority of subscribers have received the message,
+          the leader will commit the event to its log
+
+  - we will use *active replication*, an approach for replicating data
+    across a group by assuming that each node in the group is an
+    active process that is capable of actively keeping its data store
+    up to date
+    - instead of passing along notifications to invalidate data, or
+      transferring the contents of the changed data, we are instead
+      going to send operation updates, with the parameters necessary
+      for any active node to replicate the state independently
+  - we will use a push-based replication approach, where a strong
+    leader server will push all updates to the system to the rest of
+    the followers in the cluster
+
+
+  If I can implement a self-sustaining leader election algorithm, then
+  I can always have some node designated as the coordinator of the
+  group. If I have a coordinator for the group, then I can synchronize
+  the data stores of every peer in the group. If I can synchronize all
+  the peers' view of the data store, then I have consistency. If I
+  have a single coordinator, I also have a designated node for
+  restoring newly joining tuplespaces (PROBLEM TWO: Unable to reliably
+  restore tuplespaces in either approach).
+
+  If I have a self-sustaining leader election, I also have the ability
+  to heal in case of a network partition. Each side of the partition
+  will elect a new leader, if they are able to receive a majority of
+  votes from nodes in their partition. These leaders will coordinate
+  independently of one another, until the network is healed. (NEED
+  MORE RESEARCH HERE, how does the history of the two leaders get
+  consolidated into one master log?)
+
+
+  - Thinking about the project in terms of Raft
+    - Tuplespaces are *local state machines*
+** transport
+   - for the internal transport (i.e Raft messaging) we will use zmq
+     sockets
+     - 127.0.0.X:5555
+
+   - for communication from a client, we will use HTTP as our transport
+     - localhost:8080
+**
+
+* Raft
+  - a consensus algorithm for managing a replicated log.
+    - relevance: our microblog platform built on top of tuplespaces is
+      essentially a replicated log. For every peer in the platform,
+      they should each have an identical view of the platform's
+      contents.
+
+    - how to achieve this?
+      - define a single entity in the group as a coordinator,
+        responsible for resolving all history conflicts and for
+        restoring newly joining peers
+      - how to implement? -- *Leader Election*
+
+    - "separates the key elements of consensus"
+      - *leader election*
+
+      - *log replication*
+
+      - *safety*
+
+** basic overview
+   Raft is meant to bring a group of multiple nodes to agree upon a
+   single value (WRONG! See below) for which all data stores need to
+   replicate.
+
+   #+BEGIN_QUOTE
+   Actually, Raft doesn't arrive at consensus over an individual
+   value, but rather an *order* of events. That is, all peers in the
+   group agree upon a single sequence of events, which is maintained
+   by the Leader.
+   #+END_QUOTE
+
+
+   Each peer in the raft consensus algorithm can be in one of three
+   different states:
+
+   1. Follower
+   2. Candidate
+   3. Leader
+
+
+   All nodes are initially in the follower state. If a node doesn't
+   receive a response from any designated leader node, then that node
+   becomes a *candidate*. At the beginning of the system's life, the
+   first node to timeout will become candidate, requesting votes from
+   the other nodes in the cluster.
+
+   Once a node shifts into the candidate state, then it requests votes
+   from all other nodes that it knows about. Each node replies with a
+   vote and once a candidate has a majority of votes, it immediately
+   becomes the Leader node and begins its heartbeat, a periodic empty
+   AppendEntries RPC to every Follower.
+
+   After a leader has been elected, we can route all system changes
+   through it. Each change is added to the leader's log as an entry.
+   These entries are uncommitted, that is, have not yet been finalized
+   in the leaders ultimate log.
+
+   When committing an entry, the leader replicates the entry to all of
+   its followers nodes, who write it to their own log. Once a majority
+   of the nodes have replied back to te leader with their
+   confirmation, the leader finalizes the entry in its log, and then
+   sends another message to all its followers notifying them that the
+   value is finalized, and to commit the entry to their log
+
+
+   The leader is a *Publisher*, the followers are *Subscribers*
+
+   When updating the shared log, clients will *PUSH* updates to the
+   leader, while the leader will *PULL* from the clients
+
+** leader election
+   There are two timeout settings controlling elections.
+
+   1. Election Timeout
+
+      The amount of time a follower will wait before becoming a
+      candidate and starting an election.
+
+      This timeout value is randomized between 150 and 300ms.
+      Staggering each node, so that elections are more probable in the
+      event that a node fails.
+
+      Once a follower becomes a candidate, it begins an election term
+      and votes for itself. It then notifies the other nodes of the
+      election, and any node that has yet to vote in this term will
+      cast its vote and reset its timeout timer. The node receiving
+      the majority of the votes will become the new leader and send
+      out /Append Entries/ messages to all its followers
+
+      These append entry messages are send in /intervals/ specified by
+      the *heartbeat timeout*. Followers respond to these messages with
+      a heartbeat.
+
+      In the event that two nodes become candidates at the same time
+      and splits the vote, we are able to simply reset the election
+      timeout timer to some random value for each of the nodes, and
+      hold a new election.
+
+*** when a leader fails
+    The leader is the main source of truth for the application
+    cluster, and will maintain a log of events that need to be
+    committed. In the event that a leader fails, we can be left with
+    inconsistent logs, such that logs from the old leader not being
+    fully replicated through the cluster
+
+    The newly elected leader resolves this inconsistency by enforcing
+    its view of the log upon all the followers in the cluster
+
+    - this is achieved by the new leaer comparing its log with all of
+      the followers, finding the last entry where they agree, and
+      deleting all entries after consistency is lost in the follower
+      lof, replacing it with its own log entries
+
+*** saftey rules
+
+    1. at most one leader can be elected in a given election term
+    2. a leader is only able to append to the log, that is, it cannot
+       update or remove. Once added to the log, the event is finalized
+    3. if two logs contain an entry with same index and term, then
+       logs are identical
+    4. if log entry is committed in a term, then it is present in the
+       logs of all future leaders
+    5. if a server has applied a particular log to its state machine,
+       no other server may apply a different command for the same log
+
+** notable features
+
+*** strong leader
+    - Log entries flow *from* the leader *to* others
+
+    - All message passing is initiated by the leader, or a server
+      attempting to become the leader
+      - All communication is modelled as RPCs
+
+*** leader election
+    Randomized timers to elect leaders
+
+*** membership changes
+
+** replicated state machines
+   [[wiki:state_machine_replication][replicated state machines]]
+
+   A collection of servers compute identical copies of the same state
+   and continue operation in the event some servers fail. They are
+   highly implicated in fault tolerance problem solutions.
+
+*** implementation
+    Replicated state machines typically implemented using a replicated
+    log, where each log contains the *same commands in the same order*.
+    This invariant ensures that each replicated state machine
+    processes the same sequence. Because the state machines are
+    deterministic (hence the name *state machine*), if they all compute
+    the same sequence of commands, then they will produce the same
+    output.
+
+** Rules for servers
+
+*** all servers
+    - If self.commit_index > self.last_applied, apply
+      log[last_applied] to state machine
+    - If RPC request/response contains term T > self.current_term, set
+      self.current_term to T, set state to Follower
+
+*** followers
+    - respond to RPCs from candidates and leaders
+    - if timeout expired without AppendEntries RPC from current
+      leader, or granting vote to candidate, set state to Candidate
+
+*** candidates
+    - Upon becoming a candidate, start an election
+      - vote for yourself
+      - reset election timer
+      - send RequestVote RPC to all cluster members
+    - Become leader if received majority votes
+    - If received AppendEntries RPC from new leader, set state to Follower
+    - If election timeout, start new election
+
+*** leaders
+    - Upon becoming leader, send initial empty AppendEntries RPC to
+      notify all servers in cluster that you are the new leader
+      - do this periodically, as part of a heartbeat routine
+    - If received command from client, append entry to local log,
+      replicate to other servers in cluster
+      - once majority have replicated, commit the entry, apply to the
+        state machine, return result to client
+
+* ZMQ
+
+  Allows us to transparently use ZMQ sockets to communicate via
+  multiple protocols (e.g TCP, IP multicast, in-process,
+  inter-process)
+
+
+  #+BEGIN_QUOTE
+  Actually ZeroMQ does rather more than this. It has a subversive
+  effect on how you develop network-capable applications.
+  Superficially, it's a socket-inspired API on which you do zmq_recv()
+  and zmq_send(). But message processing rapidly becomes the central
+  loop, and your application soon breaks down into a set of message
+  processing tasks. It is elegant and natural. And it scales: each of
+  these tasks maps to a node, and the nodes talk to each other across
+  arbitrary transports. Two nodes in one process (node is a thread),
+  two nodes on one box (node is a process), or two nodes on one
+  network (node is a box)—it's all the same, with no application code
+  changes.
+  #+END_QUOTE
+
+** how to use
+   zmq sockets live their lives in four steps, just like regular old
+   BSD sockets
+
+   1. create and destroy via =zmq_socket(), zmq_close()=
+   2. configure sockets with options via =zmq_setsockopt(), zmq_getsockopt()=
+   3. plug socket into network topology via =zmq_bind(), zmq_connect()=
+      - the binding socket is typically a server, at some well-known address
+        - "bind a socket to an endpoint" -- listen for incoming connections
+        - "connect a socket to an endpoint" -- attempt to connect to
+          socket at endpoint
+   4. transmit data via =zmq_msg_send(), zmq_msg_recv()=
+
+** publish-subscribe
+   publisher sockets are connected to subscriber sockets in a one to
+   many relationship
+
+   when setting up a SUB socket, *must* set a subsctiption using
+   zmq_setsockopt() and SUBSCRIBE. Without a subscription, no messages
+   will ever be received
+
+   A subscriber can set many subscriptions, such that if any message
+   matches a subscription, then the subscriber will receive the message
+
+   subscriptions are often *printable strings*
+
+    PUB-SUB pairs are *asynchronous*, clients loop zmq_recv() while
+    publishers run zmq_send() as often as needed, but never zmq_recv()
+
+    *bind* the *PUB* and *connect* the *SUB*
+
+    there is a *slow-joiner* problem, such that a publisher has already
+    started sending message before a subscriber is fully connected,
+    NOTE: this will happen even if the subscriber is started, well in
+    advance of when the publisher is. The subscriber will *always* miss
+    the first messages that the publisher sends
+
+    This happens because setting up a TCP connection takes a finite
+    amount of time, in which ZMQ may be sending multiple messages. To
+    remedy this we need to synchronize the publisher and subscribers
+    so that data is not published until the subscribers are ready to receive
+
+* Election and Voting
+  In the second project we observed issues with restoring a newly
+  joining peer (i.e tuplespace/adapter/manager) because we had no
+  coordination and consensus among the nodes in the microblog
+  platform.
+
+
+* Report
+** Introduction
+   Throughout the semester we have been building a distributed
+   microblogging platform using tuplespaces. The underlying model has a
+   user with an individual tuplespace that they interact directly with.
+   Any changes that they make to their local tuplespace (i.e write and
+   take operations), should be propagated and replicated to all other
+   clients in the microblog group.
+
+   Project two saw us implementing this model in two different ways. In
+   the first approach we used a centralized architecture, where each
+   user in the microblog platform had an individual tuplespace/adapter
+   pair. This approach had the benefit of relatively easy discovery. As
+   new tuplespaces joined the multicast group, their presence would be
+   recorded by the nameserver. A command line client then connects to
+   this naming server at a well-known address, retrieves a list of
+   client-address bindings, and performs operations directly on the
+   user's tuplespace. Assuming no failures, this is obviously a correct
+   approach, such that all the operations (if they succeed), will occur
+   in the same order on each tuplespace.
+
+   The second approach had us implementing a more decentralized
+   architecture, by removing the naming and log/recovery server.
+   Instead of allowing those servers to be individual points of
+   failure, we merged the two facilities into a middleware layer (i.e
+   the Tuplespace Manager). Users would interact directly with their
+   own Tuplespace Manager, which would apply client operations to the
+   tuplespace. The tuplespace manager would also listen for multicast
+   traffic from the events announced by the tuplespaces in the
+   multicast group, intercept, and replicate them locally.
+
+   Through the course of both implementations, numerous problems arose
+   resulting from flaws in the design. The first approach struggles
+   from having multiple points of failure, where a single link failing
+   brings the entire system into an unusable state. The second approach
+   suffers from a separate, yet ultimately fatal flaw, wherein a single
+   message sent into the platform will bounce around indefinitely
+   between all the tuplespaces as they multicast their events, and
+   respond in turn to those events, ad infinitum.
+** Flaws in the previous designs
+*** Single-point of failure
+
+** Proposed Implementation
+   After having read through the Raft Consensus Algorithm introduced by
+   Ongaro and Ousterhout, we have decided to use it as the foundation
+   for our microblogging platform. As before, the underlying model is
+   left unchanged. That is, clients should be able to transparently
+   connect to any of the servers in the microblog platform and have
+   their operations replicated to every other server in the cluster.
+   The server cluster should be fault tolerant, and if the Raft
+   Consensus Algorithm is implemented properly, the cluster should be
+   able to tolerate (N // 2) - 1 failures. That is, if there are 5
+   servers in a cluster, up to 2 may fail at any given time.
+
+   Servers in the cluster can take on one of three states:
+
+   1. Follower
+   2. Candidate
+   3. Leader
+
+
+   In the normal course of operation, servers in the cluster are
+   arranged in a master-slave relationship, wherein all log entries
+   flow from the leader to the other servers. To be clear, clients will
+   connect transparently to one of the servers in the cluster, and
+   those servers will forward operations to the Leader/Master server.
+   The Leader server will then append the Entry to its Log, and will
+   replicate the entry to other servers in the cluster via RPC. Once a
+   majority of servers have appended the entry to their own logs, the
+   leader server will mark the entry as committed, apply its operation
+   to the StateMachine, and returns the result to the calling client.
+
+*** Transport
+    We are using ZMQ REQ/REP sockets as transport for internal cluster
+    communication. Upon initialization, each server in the raft cluster
+    binds a REP socket, allowing it to respond to incoming requests.
+    Whenever a raft server needs to talk to a peer (e.g soliciting
+    election votes, heartbeating as leader), we spawn a new thread for
+    that communication with an ephemeral REQ socket.
+
+**** RPC
+     We are using zmq sockets to implement the RPC pattern for
+     internal raft cluster communication. When a server in the cluster
+     transitions into the candidate state, they need to start an
+     election. An election is started by the server node in question
+     changing its state to "candidate", voting for itself, and then
+     requests a vote all the servers in the cluster using the
+     RequestVotes RPC. When making these RPCs, the candidate server
+     spawns a thread that creates an ephemeral REQ socket for calling
+     into the remote node. The remote node will be notified of the
+     election, the address of the candidate, the candidate's proposed
+     term, their staged entries and commit_idx. With this information
+     the node decides whether or not to vote for the candidate.
+
+** References
+   [[https://raft.github.io/]]
+   [[https://raft.github.io/raft.pdf]]
+   [[https://github.com/royaltm/node-zmq-raft]]
+   [[https://github.com/etcd-io/etcd]]
+   [[https://github.com/Oaklight/Vesper]]
+   [[https://blog.pythonisito.com/2012/08/distributed-systems-with-zeromq.html]]
+   https://augustl.com/blog/2013/zeromq_instead_of_http/
