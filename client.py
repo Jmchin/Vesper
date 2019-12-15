@@ -79,7 +79,9 @@ if __name__ == "__main__":
 
     if args.operation == "get":
         # get some shit
-        print(f"GET ({args.user} {args.topic} {args.message})")
+        user, topic, msg = args.user, args.topic, args.message
+        pattern = (user, topic, msg)
+        get(args.hostname, pattern)
     elif args.operation == "put":
         # put some shit
         user, topic, msg = args.user, args.topic, args.message
