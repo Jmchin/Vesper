@@ -1,7 +1,6 @@
 #+TITLE: CPSC 551 - Project 3
 #+AUTHOR: Justin Chin, Daniel Miranda
 
-
 * TODOS
 ** TODO Implement Raft Consensus Algorithm
 *** TODO Replicated Log
@@ -324,7 +323,6 @@
   coordination and consensus among the nodes in the microblog
   platform.
 
-
 * Report
 ** Introduction
    Throughout the semester we have been building a distributed
@@ -364,11 +362,60 @@
    message sent into the platform will bounce around indefinitely
    between all the tuplespaces as they multicast their events, and
    respond in turn to those events, ad infinitum.
+
 ** Flaws in the previous designs
 *** Single-point of failure
+    The first approach introduces singular points of failure in both
+    the naming server and the recovery server. Once either of these
+    systems go down, there is no way for the system to autonomously
+    recover and the entire platform becomes unusable until further
+    administrative action is taken to bring the system back into a
+    stable state.
+
+    We attempted to ameliorate this problem with approach two, with
+    our decentralized architecture. However, we found that without
+    some additional implementation that this was an untennable
+    approach. At a minimum we would need to sign each message with a
+    sequence number and an origin so that we can ignore messages that
+    we have already seen.
+
+    Our approach
+
+*** Sequential Consistency
+    Both approaches had an issue with maintaining consistency between
+    all of the data stores. There was no consensus algorithm for
+    coordinating tuplespace operations between all of the servers.
+    Without a mechanism for consensus, our tuplespaces can quickly
+    fall into an unsynchronized state. This issue arises from the fact
+    that the original architecture used a single phase commit model,
+    wherein a tuplespace would respond immediately to received events.
+    In the event of any failures, whether in the tuplespace, the
+    adapter, the proxy or the tuplespace manager, the consistency of
+    the system is lost.
+
+    To address this problem, we looked into two-phase commit, where in
+    operations are tentatively queued before being applied to the data
+    store/state machine. This is a rather straightforward solution to
+    implement, assuming a reliable communciation channel. The model we
+    based our solution off of is Raft's replicated log/replicated
+    state machine. The idea is that a single privileged node (i.e
+    coordinator) determines the order of sequences seen by all the
+    servers in the cluster. In the first phase, the coordinator
+    disseminates the changes to all its followers, having them append
+    new entries to their log. Once a majority of the servers have
+    confirmed that they have received the event, the coordinator sends
+    a second round of messages, telling the followers that the entry
+    is committed. It is at this point that the individual server nodes
+    apply the entry to their data stores.
+
+    This allows us to enforce a consistent view between all of the
+    replicas. Because all processes in the group see the same log
+    (i.e the same order of operations), applying all the events in log
+    order to the tuplespace ensures that if a server is upto date on
+    its log entries, that its state is consistent as well.
 
 ** Proposed Implementation
-   After having read through the Raft Consensus Algorithm introduced by
+   After reading through the Raft Consensus Algorithm introduced by
    Ongaro and Ousterhout, we have decided to use it as the foundation
    for our microblogging platform. As before, the underlying model is
    left unchanged. That is, clients should be able to transparently
@@ -419,11 +466,18 @@
      term, their staged entries and commit_idx. With this information
      the node decides whether or not to vote for the candidate.
 
+** Integrating tuplespaces with Vesper library
 ** References
    [[https://raft.github.io/]]
-   [[https://raft.github.io/raft.pdf]]
-   [[https://github.com/royaltm/node-zmq-raft]]
-   [[https://github.com/etcd-io/etcd]]
-   [[https://github.com/Oaklight/Vesper]]
-   [[https://blog.pythonisito.com/2012/08/distributed-systems-with-zeromq.html]]
-   https://augustl.com/blog/2013/zeromq_instead_of_http/
+
+   \noindent[[https://raft.github.io/raft.pdf]]
+
+   \noindent[[https://github.com/royaltm/node-zmq-raft]]
+
+   \noindent[[https://github.com/etcd-io/etcd]]
+
+   \noindent[[https://github.com/Oaklight/Vesper]]
+
+   \noindent[[https://blog.pythonisito.com/2012/08/distributed-systems-with-zeromq.html]]
+
+   \noindent https://augustl.com/blog/2013/zeromq_instead_of_http/
