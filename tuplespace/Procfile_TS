@@ -5,3 +5,7 @@ bob-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c bo
 bob-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c bob.yaml
 chuck-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c chuck.yaml
 chuck-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c chuck.yaml
+dave-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c dave.yaml
+dave-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c dave.yaml
+erin-ts: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' tuplespace.rb -c erin.yaml
+erin-adapter: ruby -e '$stdout.sync = true; load($0 = ARGV.shift)' adapter.rb -c erin.yaml
