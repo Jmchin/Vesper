@@ -45,14 +45,6 @@ def put(addr, user, topic, content):
     # redirecting till we find the leader, in case of request during election
     print(redirectToLeader(server_address, message))
 
-# client get request
-# def get(addr, key):
-#     server_address = addr + "/request"
-#     payload = {'key': key}
-#     message = {"type": "get", "payload": payload}
-#     # redirecting till we find the leader, in case of request during election
-#     print(redirectToLeader(server_address, message))
-
 # Proxy is expecting python types when mapping templates out for
 # Py=>Rb conversion
 def get(addr, tupl):
@@ -76,12 +68,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.operation == "get":
-        # get some shit
         user, topic, msg = args.user, args.topic, args.message
         pattern = (user, topic, msg)
         get(args.hostname, pattern)
     elif args.operation == "put":
-        # put some shit
         user, topic, msg = args.user, args.topic, args.message
         if user and topic and msg:
             put(args.hostname, user, topic, msg)
