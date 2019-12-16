@@ -208,16 +208,44 @@
   a fair bit shy of implementing the entirety of the raft protocol.
   For example, it lacks dynamic cluster configuration changes,
   snapshotting, and log compaction. A possible approach for patching
-  in configuration changes has been discussed above. Snapshotting and
-  log compaction are two issues that help solve each other. By
-  compacting our log (i.e reducing a range of indexed log entries to
-  a stable state) we are able to prevent the log from growing
-  indefinitely large. We can then persist these snapshots to stable
-  storage, and use them to restart a process from a known, stable
-  state. This would help with latency issues across a network as we
-  can simply send the entire state over in a request, rather than
-  play the operations in log order as in normal operation.
+  in configuration changes has been discussed above.
 
+  Snapshotting and log compaction are two issues that help solve each
+  other. By compacting our log (i.e reducing a range of indexed log
+  entries to a stable state) we are able to prevent the log from
+  growing indefinitely large. We can then persist these snapshots to
+  stable storage, and use them to restart a process from a known,
+  stable state. This would help with latency issues across a network
+  as we can simply send the entire state over in a request, rather
+  than play the operations in log order as in normal operation.
+
+  In the future, I would like to branch this codebase and change the
+  internal communication channels to use ZMQ sockets instead of HTTP.
+  While HTTP is fine for most things, ZMQ has a few added benefits,
+  such as being message oriented. We can also spin up multiple
+  concurrent RPC requests over the same TCP connection which can help
+  simplify some of the implementation. ZMQ sockets are also nice in
+  that they don't require manual retry handling. If one end of the
+  connection is not up, the messages will be queued rather than
+  discarded.
+
+  Also, because we have naively attached the tuplespaces to this raft
+  consensus library, there are still weakpoints in the system design.
+  For example, if any of the processes in the tuplespace unit fail,
+  there is no way to reliably detect this and recover. We could add
+  some sort of watchdog process that will monitor each individual
+  tuplespace/adapter, and if one of them fails, reinitializes it with
+  the proper invocation. While conceptually simple, there are a lot of
+  moving parts so this solution would require multiple iterations and
+  stringent testing outside the scope of this course.
+
+  Furthermore, as a microblogging platform, we require a substantial
+  amount of additional security measures, as there currently is none
+  at all. We could extend this platform by implementing user
+  authentication so that only authorized users can post under specific
+  usernames. This idea can be taken further by restricting the topics
+  that users can post to and any other number of administrative
+  functions.
 * References
   [[https://raft.github.io/]]
 
