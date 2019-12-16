@@ -54,6 +54,30 @@
   infinitum.
 
 * Flaws in the previous designs
+** Problem: Duplication of events
+*** In both approaches of Project II we encountered duplication of events/actions that materialized from our implementations of the Recovery Server (i.e. log file) for the first approach, and Replication in the second approach.
+*** Recovery Server (log file) problem:
+**** The recovery server listened for ‘write’ and ‘take’ notifications from the multicast group and logged each one to a log file, in essence, taking a record/history of all events transpiring within the multicast group. The problem arises when a tuplespace is started/restarted and in need of being brought up to date. Upon recovery of a newly started tuplespace the recovery server would playback all the events in its log to that tuplespace bringing it up to date and consistent with the rest of the group. Initially, this would work as expected, but only once. From then onwards, the log would be corrupted because the recovery server logs events indiscriminately. Events that were being played back for the newly joining tuplespace would be performed at that tuplespace, and by design the tuplespace would multicast that action to the recovery server where it was logged as if that tuplespace were performing them as a normal operation rather than a recovery operation. Although the first tuplespace having a recovery performed upon it would be consistent with the rest of the group, any subsequent recovery of tuplespaces would yield duplicate entries in its tuplespace.
+*** Replication problem:
+**** In the replication approach the problem was more severe when it came to duplicating entries. In this approach we used tuplespace managers at each tuplespace that would listen for multicast traffic for ‘write’ and ‘take’ events. Upon of the receipts of these notification the action would be taken locally (active replication) which in theory would keep all the tuplespaces consistent. However, as mentioned previously, there was no mechanism to distinguish entries that had already been seen, no way to uniquely identify them. In turn, as soon as a ‘write’ event had been performed at one tuplespace, a multicast would be sent and received by the other tuplespace managers in the group which would perform the operation locally. This now led to each of the other tuplespaces multicasting their write event, which in turn would cause them to again multicast the event after performing it, so on and so forth. This led to perpetual writing in the system and rendering the entire system useless as each of the processes resources were being used to continuously write the same operation over and over. In a similar fashion if a ‘take’ event was performed, it would cause the same issue, however in this case the system would hang due to the fact that the operation would quickly exhaust the tuplespaces of entries matching the ‘take’ criteria and all processes would eventually wait in a blocking state for a tuple to appear that would match the criteria of the ‘take’ operation. This too would render the system useless.
+** What triggers the problem, and how to reproduce it:
+*** Recovery Server (log file):
+**** The issue was triggered by performing more than one recovery. The first recovery, and only the first one, would leave the tuplespaces in a consistent state because the log file at that time would still be in an untainted state. However, after the first recovery, the log file would be corrupted and never again be correct.
+*** Replication:
+**** The issue of perpetual writes/takes of tuplespaces could be triggered from the onset of the very first operation performed on it. A single event would immediately put it into a state of constant operation (write) or constant waiting (take).
+** What impact the problem has on the system:
+*** Recovery Server (log file):
+**** The system would continue to operate. However, the tuplespaces would not be in a consistent state, nor would they ever reach consistency amongst them (except for the first recovery). This could potentially be more dangerous than a system that is rendered useless since user will continue to operate on the system with the assumption that all tuplespaces are correct and consistent.
+*** Replication:
+**** The system is rendered completely useless in this situation and is obvious to the user that some failure has taken place.
+** What the correct behavior should have been:
+*** Recovery Server (log file):
+**** A correct behavior for this implementation should have written only a single event to the recovering tuplespace and not left the log file in a duplicated state. This could have been achieved using unique identifiers for each tuple being written, or by having the the new tuplespace not multicast its events during the duration of the replication. An approach similar to globally coordinated checkpoint can be used in which a message can be multicast to the group to halt operation. Upon confirmation that the group has temporarily halted operation, recovery of the tuplespace may begin. Once complete, another multicast is sent to inform the group that operation may resume. This will lead to a consistent new tuplespace, and the halting of operation by the others ensure that it didn’t miss any operations while in the process of recovering. Essentially a two-phase commit.
+*** Replication:
+**** The proper behavior for Replication would have performed a single operation at each of the other tuplespaces and no more. We have implemented a two-phase commit to rectify this. Each server has a log of entries. When a client connects and request an action, the server will hold a vote request and if it receives a majority of responses in the affirmative, it will proceed to multicast a vote commit message so the tuplespaces can commit the entry and perform the action, and finally the coordinator itself will commit the entry and perform the action.
+
+
+
 ** Single-point of failure
    The first approach introduces a singular point of failure in the
    naming server. If the nameserver is unavailable, there is no way
