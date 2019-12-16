@@ -324,28 +324,40 @@
   coordination and consensus among the nodes in the microblog
   platform.
 
+
+
 * Report
 ** Introduction
    Throughout the semester we have been building a distributed
-   microblogging platform using tuplespaces. The underlying model has a
-   user with an individual tuplespace that they interact directly with.
-   Any changes that they make to their local tuplespace (i.e write and
-   take operations), should be propagated and replicated to all other
-   clients in the microblog group.
+   microblogging platform using tuplespaces. The underlying model has
+   a number of users each with an individual tuplespace that they
+   interact directly with. Any changes that they make to their local
+   tuplespace (i.e write and take operations), should be propagated
+   and replicated to all other clients in the microblog group. That
+   is, there should be a shared global view of the tuplespace
+   contents.
 
-   Project two saw us implementing this model in two different ways. In
-   the first approach we used a centralized architecture, where each
-   user in the microblog platform had an individual tuplespace/adapter
-   pair. This approach had the benefit of relatively easy discovery. As
-   new tuplespaces joined the multicast group, their presence would be
-   recorded by the nameserver. A command line client then connects to
-   this naming server at a well-known address, retrieves a list of
-   client-address bindings, and performs operations directly on the
-   user's tuplespace. Assuming no failures, this is obviously a correct
-   approach, such that all the operations (if they succeed), will occur
-   in the same order on each tuplespace.
+   The second project saw us implementing this model in two different
+   ways. In the first approach, we used a centralized architecture
+   where each user in the microblog platform had an individual
+   tuplespace/adapter pair. This approach had the benefit of
+   relatively easy discovery. As new tuplespaces join the multicast
+   group, the nameserver records their endpoints in its own
+   tuplespace. A command line client then connects to this naming
+   server at a well-known address, retrieves a list of client-address
+   bindings, and performs operations directly on the users
+   tuplespaces. Assuming no failures, this is obviously a correct
+   approach, such that all the operations (if they succeed), will
+   occur in the same order on each tuplespace. The command line client
+   we wrote for interacting with the microblog platform essentially
+   performs the role of a centralized coordinator for every event, as
+   it connects directly to each user's tuplespace and performs the
+   operation. The system has a single view, that of the client's. This
+   becomes a little more muddied when we introduce multiple clients as
+   we have introduced race conditions, because there was originally no
+   lock mechanism to enforce mutual exclusion.
 
-   The second approach had us implementing a more decentralized
+   The second approach had us implementing a decentralized
    architecture, by removing the naming and log/recovery server.
    Instead of allowing those servers to be individual points of
    failure, we merged the two facilities into a middleware layer (i.e
@@ -357,30 +369,36 @@
 
    Through the course of both implementations, numerous problems arose
    resulting from flaws in the design. The first approach struggles
-   from having multiple points of failure, where a single link failing
-   brings the entire system into an unusable state. The second approach
-   suffers from a separate, yet ultimately fatal flaw, wherein a single
-   message sent into the platform will bounce around indefinitely
-   between all the tuplespaces as they multicast their events, and
-   respond in turn to those events, ad infinitum.
+   from having multiple points of failure (i.e the nameserver), where
+   a single link failing brings the entire system into an unusable
+   state. The second approach suffers from a separate, yet ultimately
+   fatal flaw, wherein a single message sent into the platform will
+   bounce around indefinitely between all the tuplespaces as they
+   multicast their events, and respond in turn to those events, ad
+   infinitum.
 
 ** Flaws in the previous designs
 *** Single-point of failure
-    The first approach introduces singular points of failure in both
-    the naming server and the recovery server. Once either of these
-    systems go down, there is no way for the system to autonomously
-    recover and the entire platform becomes unusable until further
-    administrative action is taken to bring the system back into a
-    stable state.
+    The first approach introduces a singular point of failure in the
+    naming server. If the nameserver is unavailable, there is no way
+    for the system to proceed. At this point, clients are unable to
+    interact with the system at all. As a result of the architecture,
+    it is the singluar point of entry into the entire distributed
+    platform. This can be ameliorated by abstracting away the
+    responsibilities of a single process into that of a process group,
+    by replicating the naming server to several well-known addresses.
+    This would give the system some redundancy in case one of the
+    naming servers fails.
 
-    We attempted to ameliorate this problem with approach two, with
-    our decentralized architecture. However, we found that without
-    some additional implementation that this was an untennable
-    approach. At a minimum we would need to sign each message with a
-    sequence number and an origin so that we can ignore messages that
-    we have already seen.
-
-    Our approach
+    We attempted to address this problem with approach two, with our
+    decentralized architecture. However, we found that without some
+    additional implementation that this was an untennable approach. At
+    a minimum we would need to sign each message with a sequence
+    number and an origin so that we can ignore messages that we have
+    already seen. Without the ability to inspect and ignore messages
+    before processing them, the decentralized microblog platform is
+    unusable after a single message is propagated throughout the
+    system.
 
 *** Sequential Consistency
     Both approaches had an issue with maintaining consistency between
@@ -407,25 +425,24 @@
     confirmed that they have received the event, the coordinator sends
     a second round of messages, telling the followers that the entry
     is committed. It is at this point that the individual server nodes
-    apply the entry to their data stores.
+    apply the operation in the entry to their data stores.
 
     This allows us to enforce a consistent view between all of the
     replicas. Because all processes in the group see the same log
     (i.e the same order of operations), applying all the events in log
     order to the tuplespace ensures that if a server is upto date on
     its log entries, that its state is consistent as well.
-
 ** Proposed Implementation
    After reading through the Raft Consensus Algorithm introduced by
-   Ongaro and Ousterhout, we have decided to use it as the foundation
-   for our microblogging platform. As before, the underlying model is
-   left unchanged. That is, clients should be able to transparently
-   connect to any of the servers in the microblog platform and have
-   their operations replicated to every other server in the cluster.
-   The server cluster should be fault tolerant, and if the Raft
-   Consensus Algorithm is implemented properly, the cluster should be
-   able to tolerate (N // 2) - 1 failures. That is, if there are 5
-   servers in a cluster, up to 2 may fail at any given time.
+   Ongaro and Ousterhout, we have decided to use it to solve some of
+   the issues we had in for our microblogging platform. As before, the
+   underlying model is left unchanged. That is, clients should be able
+   to transparently connect to any of the servers in the microblog
+   platform and have their operations replicated to every other server
+   in the cluster. The server cluster should be fault tolerant, and if
+   the Raft Consensus Algorithm is implemented properly, the cluster
+   should be able to tolerate (N // 2) - 1 failures. That is, if there
+   are 5 servers in a cluster, up to 2 may fail at any given time.
 
    Servers in the cluster can take on one of three states:
 
@@ -436,22 +453,25 @@
 
    In the normal course of operation, servers in the cluster are
    arranged in a master-slave relationship, wherein all log entries
-   flow from the leader to the other servers. To be clear, clients will
-   connect transparently to one of the servers in the cluster, and
-   those servers will forward operations to the Leader/Master server.
-   The Leader server will then append the Entry to its Log, and will
-   replicate the entry to other servers in the cluster via RPC. Once a
-   majority of servers have appended the entry to their own logs, the
-   leader server will mark the entry as committed, apply its operation
-   to the StateMachine, and returns the result to the calling client.
+   flow from the leader to the other servers. To be clear, clients
+   will connect to one of the servers in the cluster, and those
+   servers will forward operations to the Leader/Master server. There
+   is room for implementing additional transparency at this level,
+   such that the client can be completely ignorant of where they are
+   connecting. The Leader server will then append the Entry to its Log,
+   and will replicate the entry to other servers in the cluster via
+   RPC. Once a majority of servers have appended the entry to their
+   own logs, the leader server will mark the entry as committed, apply
+   its operation to the StateMachine, and returns the result to the
+   calling client.
 
 *** Transport
-    We are using ZMQ REQ/REP sockets as transport for internal cluster
-    communication. Upon initialization, each server in the raft cluster
-    binds a REP socket, allowing it to respond to incoming requests.
-    Whenever a raft server needs to talk to a peer (e.g soliciting
-    election votes, heartbeating as leader), we spawn a new thread for
-    that communication with an ephemeral REQ socket.
+    We will use ZMQ REQ/REP sockets as the transport channel for
+    internal cluster communication. Upon initialization, each server
+    in the raft cluster binds a REP socket, allowing it to respond to
+    incoming requests. Whenever a raft server needs to talk to a peer
+    (e.g soliciting election votes, heartbeating as leader), we spawn
+    a new thread for that communication with an ephemeral REQ socket.
 
 **** RPC
      We are using zmq sockets to implement the RPC pattern for
