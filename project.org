@@ -328,7 +328,15 @@
   simplify some of the implementation. ZMQ sockets are also nice in
   that they don't require manual retry handling. If one end of the
   connection is not up, the messages will be queued rather than
-  discarded.
+  discarded. Additionally, there are issues with moving raft onto a
+  wide-area network with respect to network delays. The original raft
+  implementation will probably require some amount of modification in
+  order to bring the election timeouts into a reasonable state on a
+  wide-area network where congestion and other network problems are to
+  be expected. Possible avenues of approach are to have a number of
+  retries before declaring a link dead, and another is to use
+  adaptive timeouts that take the estimated network delay into
+  account.
 
   Also, because we have naively attached the tuplespaces to this raft
   consensus library, there are still weakpoints in the system design.
