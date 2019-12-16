@@ -8,17 +8,6 @@ FOLLOWER = 0
 CANDIDATE = 1
 LEADER = 2
 
-# TODO: integrate the tuplespace, should be able to attach to one by
-# adding additional information to the ip_list.txt for an endpoint to
-# connect to a tuplespace adapter proxy
-
-# Will need to deeply integrate the tuplespace into the code, so might
-# take some finaggling
-
-# First, let's assume that there are tuplespaces/adapater pairs up. We
-# will instantiate a tuplespace proxy adapter, and use that as our
-# database object, rather than a key-value store
-
 class Node():
     def __init__(self, fellow, my_ip, proxy_uri):
         self.addr = my_ip
