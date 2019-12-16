@@ -479,6 +479,10 @@
 
    \noindent[[https://github.com/Oaklight/Vesper]]
 
-   \noindent[[https://blog.pythonisito.com/2012/08/distributed-systems-with-zeromq.html]]
+   \noindent[[http://zguide.zeromq.org/page:all]]
 
-   \noindent https://augustl.com/blog/2013/zeromq_instead_of_http/
+   \noindent[[http://blog.pythonisito.com/2012/08/distributed-systems-with-zeromq.html]]
+
+   \noindent[[https://augustl.com/blog/2013/zeromq_instead_of_http/]]
+
+   \noindent[[https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-1-storage-mechanics/]]
