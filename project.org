@@ -487,7 +487,61 @@
      term, their staged entries and commit_idx. With this information
      the node decides whether or not to vote for the candidate.
 
-** Integrating tuplespaces with Vesper library
+** Integrating tuplespaces with Vesper
+   We began implementing our own version of the raft consensus
+   algorithm, loosely following the etcd implementation written in Go,
+   when we found a Python library that supplies a raft node with an
+   HTTP channel. With time limited, and running into substantial
+   problems with ZMQ sockets, we found this the most prudent course of
+   action. Vesper provides modules for initalizing a Raft cluster in a
+   known configuration (i.e view). This results in a static cluster
+   view, because each node in the cluster needs to know about all of
+   its peers at initialization. Without some additional
+   implementation, it is not possible to join the configuration in the
+   middle of its operation.
+
+   There are methods for achieving this, which are outlined in
+   Ongaro's paper. The general idea is that we cannot simply add nodes
+   into the configuration without a transitional period, as we must
+   avoid a situation where in the course of migrating over to a new
+   cluster configuration, we elect more than one leader for the same
+   term. The main problem is that server's will not switch into the
+   new configuration at the same time, so it is possible to have a
+   split majority, where one leader is elected via majority from the
+   old configuration and another leader is elected via majority of the
+   new configuration.
+
+   To sidestep this issue, Ongaro uses a two-phase transition, whereby
+   log entries require a joint consensus from both majorities. This
+   transitionary period persists until we enter a safe state and
+   enough servers have joined the new configuration. At this point the
+   leader who is not in the new configuration will step down, and a
+   new leader can be elected for the new configuration.
+
+   The library we used originally replicated a simple key-value store
+   across all of its nodes. In order to connect this code with our
+   tuplespace project, we installed a tuplespace adapter proxy inside
+   the raft node, which allows the node to talk with our tuplespace
+   code. Once we connected our tuplespace, we had to modify the
+   HTTP routes to interface with our expected input and output. Once
+   this was complete, we had successfully integrated a raft consensus
+   mechanism ontop of our existing tuplespaces.
+
+** Future Work
+   The library we used for adding raft consensus to our tuplespaces is
+   a fair bit shy of implementing the entirety of the raft protocol.
+   For example, it lacks dynamic cluster configuration changes,
+   snapshotting, and log compaction. A possible approach for patching
+   in configuration changes has been discussed above. Snapshotting and
+   log compaction are two issues that help solve each other. By
+   compacting our log (i.e reducing a range of indexed log entries to
+   a stable state) we are able to prevent the log from growing
+   indefinitely large. We can then persist these snapshots to stable
+   storage, and use them to restart a process from a known, stable
+   state. This would help with latency issues across a network as we
+   can simply send the entire state over in a request, rather than
+   play the operations in log order as in normal operation.
+
 ** References
    [[https://raft.github.io/]]
 
