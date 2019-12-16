@@ -1,6 +1,5 @@
 import argparse
 import sys, requests
-import argparse
 
 
 def redirectToLeader(server_address, message):
