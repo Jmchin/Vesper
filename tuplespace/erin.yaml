@@ -17,5 +17,5 @@ filters:
   - [ ~, ~, ~, ~, ~]
 adapter:
   host: localhost
-  port: 8084
+  port: 9094
   max_clients: 32
