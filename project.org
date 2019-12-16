@@ -402,15 +402,12 @@
 
 *** Sequential Consistency
     Both approaches had an issue with maintaining consistency between
-    all of the data stores. There was no consensus algorithm for
-    coordinating tuplespace operations between all of the servers.
-    Without a mechanism for consensus, our tuplespaces can quickly
-    fall into an unsynchronized state. This issue arises from the fact
-    that the original architecture used a single phase commit model,
-    wherein a tuplespace would respond immediately to received events.
-    In the event of any failures, whether in the tuplespace, the
-    adapter, the proxy or the tuplespace manager, the consistency of
-    the system is lost.
+    the data stores. There was no consensus algorithm for coordinating
+    tuplespace operations between all of the servers. Without a
+    mechanism for consensus, our tuplespaces quickly fall into an
+    unsynchronized state. This issue arises from the fact that the
+    original architecture used a single phase commit model, wherein a
+    tuplespace would respond immediately to received events.
 
     To address this problem, we looked into two-phase commit, where in
     operations are tentatively queued before being applied to the data
@@ -432,10 +429,11 @@
     (i.e the same order of operations), applying all the events in log
     order to the tuplespace ensures that if a server is upto date on
     its log entries, that its state is consistent as well.
+
 ** Proposed Implementation
    After reading through the Raft Consensus Algorithm introduced by
    Ongaro and Ousterhout, we have decided to use it to solve some of
-   the issues we had in for our microblogging platform. As before, the
+   the issues we had in our microblogging platform. As before, the
    underlying model is left unchanged. That is, clients should be able
    to transparently connect to any of the servers in the microblog
    platform and have their operations replicated to every other server
@@ -458,12 +456,13 @@
    servers will forward operations to the Leader/Master server. There
    is room for implementing additional transparency at this level,
    such that the client can be completely ignorant of where they are
-   connecting. The Leader server will then append the Entry to its Log,
-   and will replicate the entry to other servers in the cluster via
-   RPC. Once a majority of servers have appended the entry to their
-   own logs, the leader server will mark the entry as committed, apply
-   its operation to the StateMachine, and returns the result to the
-   calling client.
+   connecting. Upon receipt of an event, the Leader will append the
+   Entry to its Log, and replicate the entry to other servers in the
+   cluster via RPC. Once a majority of servers have appended the entry
+   to their own logs, the leader server will initiate a second round
+   of messages, notifying its followers that the entry is committed,
+   apply its operation to its state machine (e.g a tuplespace), and
+   returns the result to the calling client.
 
 *** Transport
     We will use ZMQ REQ/REP sockets as the transport channel for
