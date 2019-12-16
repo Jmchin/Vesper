@@ -1,5 +1,6 @@
 #+TITLE: CPSC 551 - Project 3
 #+AUTHOR: Justin Chin, Daniel Miranda
+#+OPTIONS: toc:nil
 
 * TODOS
 ** TODO Implement Raft Consensus Algorithm
