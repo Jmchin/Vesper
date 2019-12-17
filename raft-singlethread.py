@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-
-# raft.py
-
-# The beginnings of a raft conesnsus implementation
-# Author: Justin Chin
-
-# TODO:
-# 1. Implement the distributed log
-# 2. Implement Snapshots
-# 3. Implement log compaction
-# 4. Make election handling more robust
-
-
 import random
 import sys
 import time
@@ -112,9 +98,9 @@ class Server:
         self.next_idxs = None
         self.match_idxs = None
 
-        self.follower_loop()
+        self.run()
 
-    # UTILITIES
+    # MAIN ENTRY
     # ----------------------------------------------------------------------
     def run(self):
         while True:
@@ -125,6 +111,8 @@ class Server:
             elif self.state == "leader":
                 self.leader_loop()
 
+    # UTILITIES
+    # ----------------------------------------------------------------------
     def randomize_timeout(self):
         """ Sets server's election time to a random value in [150, 300]
         milliseconds
@@ -141,8 +129,6 @@ class Server:
         """
         print(f'Request redirection not implemented!')
 
-    # ELECTION
-    # ----------------------------------------------------------------------
     def initialize_election_timer(self):
         """ Spawns an election timer thread, with a randomized timeout
 
@@ -151,94 +137,8 @@ class Server:
             self.timeout_thread.cancel()
         self.randomize_timeout()
         self.timeout_thread = threading.Timer(self.election_time,
-                                              self.handle_election_timeout)
+                                              self.become_candidate)
         self.timeout_thread.start()
-
-    def handle_election_timeout(self):
-        """The target function of an election timer thread expiring
-
-        When an election timer expires, the server whose timer expired
-        must transition into the Candidate state and begin an election
-        by requesting votes from its peer group.
-
-        TODO:
-
-        If election timeout elapses without receiving AppendEntries
-        RPC from current leader OR granting vote to candidate: convert
-        to candidate
-
-        """
-        self.voted_for = None
-        if self.state != "leader" and not self.voted_for:
-            self.state = "candidate"
-            self.term += 1
-            self.voted_for = self.addr
-            self.vote_count = 1
-            self.initialize_election_timer()
-            self.request_votes()
-
-    def request_votes(self):
-        """ Request votes from every node in the current cluster
-
-        Spawns a thread for each peer in the group. Each thread will
-        need to acquire a lock on the main server object, before
-        trying to mutate state. Once a majority of votes have been
-        received, the server node will transition from the candidate
-        state into the leader state and begin sending its own
-        heartbeat.
-
-        """
-        def request_vote(peer, term):
-            # construct a message to send to the peer
-            message = {
-                "type": "RequestVotes",
-                "addr": self.addr,
-                "term": self.term,
-                "staged": self.staged,
-                "commitIdx": self.commit_idx
-            }
-
-            print(f'REQUEST_VOTE: {message}')
-
-            # initializes outbound comms socket
-            with self.ctx.socket(zmq.REQ) as sock:
-                # sock = self.ctx.socket(zmq.REQ)
-                sock.setsockopt(zmq.LINGER, 1)
-                # connect socket to peer
-                sock.connect(peer)
-                print(f'connecting to peer: {peer}')
-
-                # poll to see if a send will succeed
-                poll = zmq.Poller()
-                poll.register(sock, zmq.POLLOUT | zmq.POLLIN)
-                events = dict(poll.poll())
-
-                # ready to send
-                if events and events[sock] == zmq.POLLOUT:
-                    sock.send_json(message)
-
-                # wait for a response (1 second)
-                events = dict(poll.poll())
-                if len(events) > 0 and events[sock] == zmq.POLLIN:
-                    resp = sock.recv_json(flags=zmq.NOBLOCK)
-                    requester_term = resp["term"]
-                    if resp["voteGranted"] and self.state == "candidate":
-                        print(f'RECEIVED VOTE GRANTED: {resp}')
-                        self.increment_vote()
-                    if requester_term > self.term:
-                        print("RECEIVED NEWER TERM: Becoming FOLLOWER")
-                        self.term = requester_term
-                        self.state = "follower"
-                        self.follower_loop()
-                else:
-                    print("Request votes timeout")
-                    return False
-
-        for peer in self.peers:
-            t = threading.Thread(target=request_vote,
-                                 args=(peer, self.term))
-            t.start()
-            t.join()
 
     def increment_vote(self):
         if self.state != "leader":
@@ -251,27 +151,38 @@ class Server:
 
     # BEHAVIOR
     # ----------------------------------------------------------------------
-
     def follower_loop(self):
+        """ The basic event loop for a follower
+
+        """
         # listen for incoming requests from the leader, or timeout
         while self.state == "follower":
+            print("in follower loop")
             # time.sleep(1)
+
             self.initialize_election_timer()
+
             while self.timeout_thread.is_alive():
                 # we are awaiting incoming requests, otherwise we timeout
-                if self.rep_poll.poll():
+                events = dict(self.rep_poll.poll())
+                if self.rep_sock in events:
                     req = self.rep_sock.recv_json()
 
                     if req["type"] == "RequestVotes":
                         self.handle_request_vote(req)
                     elif req["type"] == "AppendEntries":
                         self.handle_append_entries(req)
-                    elif req["type"] == "InstallSnapshot":
-                        pass
                     elif req["type"] == "Get":
                         self.redirect_to_leader(req)
                     elif req["type"] == "Put":
                         self.redirect_to_leader(req)
+
+    def candidate_loop(self):
+        while self.state == "candidate":
+            print("in candidate loop")
+            self.term += 1
+            self.voted_for = self.addr
+            self.vote_count = 1
 
     def leader_loop(self):
         """ The basic event loop for a leader
@@ -280,17 +191,15 @@ class Server:
         # heartbeat
         print("STARTING HEARTBEAT")
 
-        # heartbeat
-        for follower in self.peers:
-            t = threading.Thread(target=self.append_entries,
-                                 args=(follower, []))
-            t.start()
+        # use a single REQ socket for communication, connect to all followers
+        with self.ctx.socket(zmq.REQ) as sock:
+            for follower in self.peers:
+                pass
 
-        # listen for incoming requests
+                # listen for incoming requests
         while self.state == "leader":
             print("in leader loop")
-            time.sleep(1)
-            if self.rep_poll.poll(timeout=1000) == zmq.POLLIN:
+            if self.rep_poll.poll() == zmq.POLLIN:
                 req = self.rep_sock.recv_json()
                 if req["type"] == "RequestVotes":
                     self.handle_request_vote(req)
@@ -298,6 +207,7 @@ class Server:
                     self.handle_append_entries(req)
                 elif req["type"] == "InstallSnapshot":
                     pass
+                    # self.handle_install_snapshot()
                 elif req["type"] == "Get":
                     print(req)
                     # self.handle_get(req)
@@ -306,38 +216,6 @@ class Server:
                     self.handle_put(req)
                 else:
                     print(f"Unknown request: {req}")
-
-    # RPC
-    # ----------------------------------------------------------------------
-
-    def handle_request_vote(self, request):
-        # from the REP socket, REPLY back to the requestuesting thread
-        message = {
-            "type": "RequestVotesResponse",
-            "addr": self.addr,
-            "term": self.term,
-            "voteGranted": False
-        }
-
-        if self.voted_for and self.term >= request["term"]:
-            print(
-                f'NOVOTE:\tself.voted_for = {self.voted_for}\tTerm: {self.term} >= {request["term"]}')
-            self.rep_sock.send_json(message)
-
-        # now we need to check whether or not we should grant the vote
-        if self.term < request["term"] and self.commit_idx <= request["commitIdx"] and (self.staged == request["staged"]):
-            print(f'self.term: {self.term}\trequest.term: {request["term"]}')
-            self.initialize_election_timer()
-            self.term = request["term"]
-            message["voteGranted"] = True
-            self.voted_for = request["addr"]
-            print(
-                f'VOTING for {request["addr"]} as LEADER for TERM {request["term"]}')
-
-        try:
-            self.rep_sock.send_json(message, flags=zmq.NOBLOCK)
-        except Exception as e:
-            print(e)
 
     def append_entries(self, follower, entries):
         """Leader side AppendEntries RPC
@@ -380,79 +258,6 @@ class Server:
                 time.sleep((self.heartbeat_interval - delta) / 100)
             print(f'Leaving append_entries thread!')
             return
-
-    def handle_append_entries(self, request):
-        """ Response handler for AppendEntries request
-
-        This method is invoked on the Follower node in response to the Leader's heartbeat
-        """
-        self.initialize_election_timer()
-
-        # build response in advance, mutate it as we go
-        response = {"type": "AppendEntriesResponse",
-                    "term": self.term,
-                    "success": False}
-
-        # leader's term is less than our's §5.1
-        if request["term"] < self.term:
-            self.rep_sock.send_json(response)
-
-        # TODO:
-        # log doesn't contain entry at request["prev_log_idx"] whose
-        # term matches request["prev_log_term"] §5.3
-
-        # TODO:
-        # if an existing entry conflicts with a new one (same index
-        # but different terms), delete the existing entry and all that
-        # follow it §5.3
-
-        # TODO:
-        # Append any new entries not already in the log
-
-        # TODO:
-        # If request["leader_commit"] > commit_idx, commit_idx := min(request["leader_commit"], idx of last new entry)
-        self.term = request["term"]
-        self.state = "follower"
-        self.leader = request["addr"]
-
-        response = {"type": "AppendEntriesResponse",
-                    "term": self.term,
-                    "success": True}
-
-        events = dict(self.rep_poll.poll(timeout=1000))
-        if events and events[self.rep_sock] == zmq.POLLOUT:
-            self.rep_sock.send_json(response)
-
-    # LEADER SPECIFIC INVOCATIONS
-    # ----------------------------------------------------------------------
-    def handle_get(self, request):
-        """ Processes a client's GET request
-
-        """
-        print(f'Receiving CLIENT GET: {request}')
-
-    def handle_put(self, request):
-        """ Processes a client's PUT request
-
-        """
-        # needs to append to the log, spread to followers, tally
-        # acknowledgements, commit once majority reached, spread
-        # commit
-        print(f'Receiving CLIENT PUT: {request}')
-        time.sleep(5)
-        self.lock.acquire()
-        self.staged = request["payload"]
-
-        log_message = {
-            "term": self.term,
-            "addr": self.addr,
-            "payload": payload,
-            "action": "log",
-            "commitIdx": self.commit_idx
-        }
-
-        ack_count = 0
-        # spread the update to all followers
 
 
 if __name__ == "__main__":

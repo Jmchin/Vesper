@@ -32,7 +32,8 @@ pip3 install --user flask
 
 7. Invoke the client to write a tuple to the raft cluster
 
-    `python3 client.py {protocol}:{address}:{port}`
+    `python3 client.py {protocol}://{address}:{port} {command} [-u]
+    {user} [-t] {topic} [-m] "{message}`
 
     `python3 client.py http://127.0.0.1:5000 put -u alice -t
     distsys -m "Hello, world!"`
@@ -41,3 +42,8 @@ pip3 install --user flask
     that is bound to a raft HTTP server. Valid values will depend on
     invocation, however, following this document will produce a valid
     port range of [5000, 5004].
+
+    The -u, -t and -m flags denote a user, topic and message
+    respectively. All three must be present for a well-formatted PUT
+    request, while any combination of the three is allowable for a GET
+    request.

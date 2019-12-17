@@ -250,18 +250,23 @@
    a new thread for that communication with an ephemeral REQ socket.
 
 *** RPC
-    We are using zmq sockets to implement the RPC pattern for
-    internal raft cluster communication. When a server in the cluster
+    We are using zmq sockets to implement the RPC pattern for internal
+    raft cluster communication. When a server in the cluster
     transitions into the candidate state, they need to start an
     election. An election is started by the server node in question
-    changing its state to "candidate", voting for itself, and then
+    changing its state to candidate, voting for itself, and then
     requests a vote all the servers in the cluster using the
     RequestVotes RPC. When making these RPCs, the candidate server
-    spawns a thread that creates an ephemeral REQ socket for calling
-    into the remote node. The remote node will be notified of the
-    election, the address of the candidate, the candidate's proposed
-    term, their staged entries and commit_idx. With this information
-    the node decides whether or not to vote for the candidate.
+    spawns a thread that creates an ephemeral REQ socket responsible
+    for handling all stepwise communication between the candidate and
+    a single follower. (We have opted for threads here because the
+    original Raft implementation states that all requests are made in
+    parallel. With zmq sockets it is possible that threads here are
+    not needed, but more research is required.) The remote node will
+    be notified of the election, the address of the candidate, the
+    candidate's proposed term, their staged entries and commit_idx.
+    With this information the node decides whether or not to vote for
+    the candidate.
 
 * Integrating tuplespaces with Vesper
   We began implementing our own version of the raft consensus
@@ -341,6 +346,12 @@
   retries before declaring a link dead, and another is to use adaptive
   timeouts that take the estimated network delay into account.
 
+  There is also a problem where if a server fails in the middle of a
+  REQ/REP connection without having completed their portion of the
+  communication, the remaining side may be blocked indefinitely, even
+  after the failing server recovers. We need a mechanism to time these
+  threads out and to reclaim the resources.
+
   Also, because we have naively attached the tuplespaces to this raft
   consensus library, there are still weakpoints in the system design.
   For example, if any of the processes in the tuplespace unit fail,
@@ -357,7 +368,7 @@
   authentication so that only authorized users can post under specific
   usernames. This idea can be taken further by restricting the topics
   that users can post to and any other number of administrative
-  functions .
+  functions.
 * References
   [[https://raft.github.io/]]
 

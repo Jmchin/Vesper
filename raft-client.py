@@ -8,57 +8,84 @@ import argparse
 import sys
 import zmq
 
+# if __name__ == "__main__":
+
+
+#     # just for testing
+#     sock = zmq.Context().socket(zmq.REQ)
+
+#     message = {
+#         "type": "Get",
+#         "payload": {
+#             "user": "",
+#             "topic": "",
+#             "content": ""}
+#     }
+
+#     # connect to our leader
+#     sock.connect(f"tcp://127.0.0.1:{port}")
+
 def redirectToLeader(server_address, message):
     # initialize a zmq context
     context = zmq.Context()
     # setup REQ socket
     sock = context.socket(zmq.REQ)
     # connect the socket to the server
+    print(server_address)
     sock.connect(server_address)
+    poll = zmq.Poller()
+    poll.register(sock, zmq.POLLOUT)
+    if poll.poll():
+        sock.send_json(message)
+        resp = sock.recv_json(flags=zmq.NOBLOCK)
+        return resp
 
-    type = message["type"]
-    # looping until someone tells he is the leader
-    while True:
-        # switching between "get" and "put"
-        if type == "get":
-            try:
-                response = sock.send_json(message, flags=zmq.NOBLOCK)
-            except Exception as e:
-                return e
-        else:
-            try:
-                response = sock.send_json(message, flags=zmq.NOBLOCK)
-            except Exception as e:
-                return e
+    # type = message["type"]
+    # # looping until someone tells he is the leader
+    # while True:
+    #     # switching between "get" and "put"
+    #     if type == "get":
+    #         try:
+    #             response = sock.send_json(message, flags=zmq.NOBLOCK)
+    #         except Exception as e:
+    #             return e
+    #     else:
+    #         try:
+    #             response = sock.send_json(message, flags=zmq.NOBLOCK)
+    #         except Exception as e:
+    #             return e
 
-        # if valid response and an address in the "message" section in reply
-        # redirect server_address to the potential leader
-        if "leaderId" in response:
-            leader_id = response["leaderId"]
-            if "message" in payload:
-                server_address = payload["message"] + "/request"
-            else:
-                break
-        else:
-            break
-    # if type == "get":
-    return response.json()
+    #     # if valid response and an address in the "message" section in reply
+    #     # redirect server_address to the potential leader
+    #     if "leaderId" in response:
+    #         leader_id = response["leaderId"]
+    #         if "message" in payload:
+    #             server_address = payload["message"] + "/request"
+    #         else:
+    #             break
+    #     else:
+    #         break
+    # # if type == "get":
+    # return response.json()
     # else:
     #     return response
 
+
 def put(addr, user, topic, content):
-    server_address = addr + "/request"
+    server_address = addr
     payload = {'user': user, 'topic': topic, 'content': content}
-    message = {"type": "put", "payload": payload}
+    message = {"type": "Put", "payload": payload}
     # redirecting till we find the leader, in case of request during election
     print(redirectToLeader(server_address, message))
 
 # Proxy is expecting python types when mapping templates out for
 # Py=>Rb conversion
+
+
 def get(addr, tupl):
-    server_address = addr + "/request"
+    server_address = addr
     payload = {"pattern": tupl}
-    message = {"type": "get", "payload": payload}
+    message = {"type": "Get", "payload": payload}
     print(redirectToLeader(server_address, message))
 
 
@@ -67,9 +94,10 @@ if __name__ == "__main__":
     # => [("alice", "distsys", "foo"), ("alice", "distsys", "bar")...]
     parser = argparse.ArgumentParser()
     parser.add_argument("hostname", nargs='?',
-                        default="http://127.0.0.1:5000",
+                        default="tcp://127.0.0.1:50000",
                         help="{protocol}://{address}:{port}")       # host to connect
-    parser.add_argument("operation", choices=['put','get'], help="One of 'get' or 'put'")
+    parser.add_argument("operation", choices=[
+                        'put', 'get'], help="One of 'get' or 'put'")
     parser.add_argument("-u", "--user")     # user
     parser.add_argument("-t", "--topic")    # topic/channel
     parser.add_argument("-m", "--message")
