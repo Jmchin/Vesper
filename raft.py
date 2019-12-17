@@ -18,6 +18,8 @@ import time
 import threading
 import zmq
 
+from tuplespace.proxy import TupleSpaceAdapter
+
 
 class Server:
     """The default server in a Raft cluster
@@ -71,7 +73,7 @@ class Server:
 
     """
 
-    def __init__(self, addr, peers):
+    def __init__(self, addr, peers, proxy):
         self.addr = addr  # 127.0.0.1:5555
         self.peers = peers
         self.state = "follower"
@@ -82,6 +84,7 @@ class Server:
         self.term = 0
         self.voted_for = None
         self.log = []
+        self.proxy = TupleSpaceAdapter(proxy)   # tuplespace proxy uri
 
         # Volatile state on ALL servers
         # ----------------------------------------------------------------------
@@ -129,12 +132,13 @@ class Server:
         """ Spawns an election timer thread, with a randomized timeout
 
         """
-        # print('Initializing election timer')
-        # timer has not expired yet, so reinitialize it
         if self.timeout_thread and self.timeout_thread.is_alive():
             self.timeout_thread.cancel()
-
         self.randomize_timeout()
+
+        # TODO: Fix this. Seems like the timer thread never exits, so
+        # if there is a long period where a node is timing out, we
+        # will spawn too many threads that cannot be cleaned up
         self.timeout_thread = threading.Timer(self.election_time,
                                               self.handle_election_timeout)
         self.timeout_thread.start()
@@ -196,14 +200,14 @@ class Server:
                 # poll to see if a send will succeed
                 poll = zmq.Poller()
                 poll.register(sock, zmq.POLLOUT | zmq.POLLIN)
-                events = dict(poll.poll(timeout=5000))
+                events = dict(poll.poll())
 
                 # ready to send
                 if events and events[sock] == zmq.POLLOUT:
                     sock.send_json(message)
 
                 # wait for a response (1 second)
-                events = dict(poll.poll(timeout=1000))
+                events = dict(poll.poll())
                 if len(events) > 0 and events[sock] == zmq.POLLIN:
                     resp = sock.recv_json(flags=zmq.NOBLOCK)
                     requester_term = resp["term"]
@@ -308,12 +312,16 @@ class Server:
         with self.ctx.socket(zmq.REQ) as sock:
             sock.setsockopt(zmq.LINGER, 1)
             sock.connect(follower)
+
             poll = zmq.Poller()
             poll.register(sock, zmq.POLLOUT | zmq.POLLIN)
+
             message = {"type": "AppendEntries",
                        "addr": self.addr,
                        "term": self.term,
+                       "entries": [],
                        "commit_idx": self.commit_idx}
+
             while self.state == "leader":
                 # time.sleep(1)
                 start_time = time.time()
@@ -321,19 +329,27 @@ class Server:
                 if events and events[sock] == zmq.POLLOUT:
                     sock.send_json(message)
                 if events and events[sock] == zmq.POLLIN:
-                    req = sock.recv_json()
-                    if req["type"] == "RequestVotes":
-                        print(req)
-                    elif req["type"] == "RequestVotesResponse":
-                        print(req)
-                    elif req["type"] == "AppendEntries":
-                        print(req)
-                    elif req["type"] == "AppendEntriesResponse":
-                        print(req)
-                    elif req["type"] == "InstallSnapshot":
+                    res = sock.recv_json()
+                    if res["type"] == "RequestVotes":
+                        print(res)
+
+                    elif res["type"] == "RequestVotesResponse":
+                        print(res)
+
+                    elif res["type"] == "AppendEntries":
+                        if not res["success"] and res["term"] > self.term:
+                            # we are an out of date leader, so step down
+                            self.state = "follower"
+                            print(f'Stepping down as leader...')
+
+                    elif res["type"] == "AppendEntriesResponse":
+                        print(res)
+
+                    elif res["type"] == "InstallSnapshot":
                         pass
                 delta = time.time() - start_time
                 time.sleep((self.heartbeat_interval - delta) / 100)
+            print(f'Leaving append_entries thread!')
 
     def handle_append_entries(self, request):
         """ Response handler for AppendEntries request
@@ -341,11 +357,37 @@ class Server:
         This method is invoked on the Follower node in response to the Leader's heartbeat
         """
         self.initialize_election_timer()
+
+        # build response in advance, mutate it as we go
+        response = {"type": "AppendEntriesResponse",
+                    "term": self.term,
+                    "success": False}
+
+        # leader's term is less than our's §5.1
+        if request["term"] < self.term:
+            self.rep_sock.send_json(response)
+
+        # TODO:
+        # log doesn't contain entry at request["prev_log_idx"] whose
+        # term matches request["prev_log_term"] §5.3
+
+        # TODO:
+        # if an existing entry conflicts with a new one (same index
+        # but different terms), delete the existing entry and all that
+        # follow it §5.3
+
+        # TODO:
+        # Append any new entries not already in the log
+
+        # TODO:
+        # If request["leader_commit"] > commit_idx, commit_idx := min(request["leader_commit"], idx of last new entry)
         self.term = request["term"]
         self.state = "follower"
         self.leader = request["addr"]
-        self.term = request["term"]
-        response = {"type": "AppendEntriesResponse", "addr": self.addr, "term": self.term}
+
+        response = {"type": "AppendEntriesResponse",
+                    "term": self.term,
+                    "success": True}
 
         events = dict(self.rep_poll.poll(timeout=1000))
         if events and events[self.rep_sock] == zmq.POLLOUT:
@@ -362,10 +404,20 @@ if __name__ == "__main__":
         with open(ip_list_file) as f:
             for ip in f:
                 ip_list.append(ip.strip())
-        my_ip = ip_list.pop(index)
-        print(f'my_ip: {my_ip}')
+        line = ip_list.pop(index)
+        peers = []
+
+        my_ip = line.split(",")[0]
+        proxy_uri = line.split(",")[1]
+
+        print(my_ip)
+        http, host, port = my_ip.split(':')
+
+        for l in ip_list:
+            li = l.split(",")
+            peers.append(li[0])
 
         # initialize node with ip list and its own ip
-        s = Server(my_ip, ip_list)
+        s = Server(my_ip, peers, proxy_uri)
     else:
         print("usage: python raft.py <index> <ip_list_file>")

@@ -1,5 +1,6 @@
 # raft-server.py
 
+import sys
 from raft import Server
 
 # need to respond to GET, PUT, RequestVotes, AppendEntries
@@ -121,6 +122,5 @@ if __name__ == '__main__':
             li = l.split(",")
             fellows.append(li[0])
 
-                # initialize node with ip list and its own ip
-        n = Node(fellows, my_ip, proxy_uri)
-    # instantiate a raft server node and run it
+        # initialize node with ip list and its own ip
+        n = Server(fellows, my_ip, proxy_uri)
