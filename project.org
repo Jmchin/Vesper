@@ -54,7 +54,7 @@
   infinitum.
 
 * Flaws in the previous designs
-** Problem: Duplication of events
+** Duplication of events
    In both approaches of Project II we encountered duplication of
    events/actions that materialized from our implementations of the
    Recovery Server (i.e. log file) for the first approach, and
@@ -103,57 +103,55 @@
     eventually wait in a blocking state for a tuple to appear that would
     match the criteria of the ‘take’ operation. This too would render the
     system useless.
-** What triggers the problem, and how to reproduce it:
-*** Recovery Server (log file):
-    The issue was triggered by performing more than one recovery. The
-    first recovery, and only the first one, would leave the tuplespaces in
-    a consistent state because the log file at that time would still be in
-    an untainted state. However, after the first recovery, the log file
-    would be corrupted and never again be correct.
-*** Replication:
-    The issue of perpetual writes/takes of tuplespaces could be triggered
-    from the onset of the very first operation performed on it. A single
-    event would immediately put it into a state of constant operation
-    (write) or constant waiting (take).
-** What impact the problem has on the system:
-*** Recovery Server (log file):
-    The system would continue to operate. However, the tuplespaces would
-    not be in a consistent state, nor would they ever reach consistency
-    amongst them (except for the first recovery). This could potentially
-    be more dangerous than a system that is rendered useless since user
-    will continue to operate on the system with the assumption that all
-    tuplespaces are correct and consistent.
-*** Replication:
-    The system is rendered completely useless in this situation and is
-    obvious to the user that some failure has taken place.
-** What the correct behavior should have been:
-*** Recovery Server (log file):
-    A correct behavior for this implementation should have written only a
-    single event to the recovering tuplespace and not left the log file
-    in a duplicated state. This could have been achieved using unique
-    identifiers for each tuple being written, or by having the the new
-    tuplespace not multicast its events during the duration of the
-    replication. An approach similar to globally coordinated checkpoint
-    can be used in which a message can be multicast to the group to halt
-    operation. Upon confirmation that the group has temporarily halted
-    operation, recovery of the tuplespace may begin. Once complete,
-    another multicast is sent to inform the group that operation may
-    resume. This will lead to a consistent new tuplespace, and the
-    halting of operation by the others ensure that it didn’t miss any
-    operations while in the process of recovering. Essentially a
-    two-phase commit.
-*** Replication
-    The proper behavior for Replication would have performed a single
-    operation at each of the other tuplespaces and no more. We have
-    implemented a two-phase commit to rectify this. Each server has a log
-    of entries. When a client connects and request an action, the server
-    will hold a vote request and if it receives a majority of responses in
-    the affirmative, it will proceed to multicast a vote commit message so
-    the tuplespaces can commit the entry and perform the action, and
-    finally the coordinator itself will commit the entry and perform the
-    action.
-
-
+*** What triggers the problem, and how to reproduce it:
+**** Recovery Server (log file):
+     The issue was triggered by performing more than one recovery. The
+     first recovery, and only the first one, would leave the tuplespaces in
+     a consistent state because the log file at that time would still be in
+     an untainted state. However, after the first recovery, the log file
+     would be corrupted and never again be correct.
+**** Replication:
+     The issue of perpetual writes/takes of tuplespaces could be triggered
+     from the onset of the very first operation performed on it. A single
+     event would immediately put it into a state of constant operation
+     (write) or constant waiting (take).
+*** What impact the problem has on the system:
+**** Recovery Server (log file):
+     The system would continue to operate. However, the tuplespaces would
+     not be in a consistent state, nor would they ever reach consistency
+     amongst them (except for the first recovery). This could potentially
+     be more dangerous than a system that is rendered useless since user
+     will continue to operate on the system with the assumption that all
+     tuplespaces are correct and consistent.
+**** Replication:
+     The system is rendered completely useless in this situation and is
+     obvious to the user that some failure has taken place.
+*** What the correct behavior should have been:
+**** Recovery Server (log file):
+     A correct behavior for this implementation should have written only a
+     single event to the recovering tuplespace and not left the log file
+     in a duplicated state. This could have been achieved using unique
+     identifiers for each tuple being written, or by having the the new
+     tuplespace not multicast its events during the duration of the
+     replication. An approach similar to globally coordinated checkpoint
+     can be used in which a message can be multicast to the group to halt
+     operation. Upon confirmation that the group has temporarily halted
+     operation, recovery of the tuplespace may begin. Once complete,
+     another multicast is sent to inform the group that operation may
+     resume. This will lead to a consistent new tuplespace, and the
+     halting of operation by the others ensure that it didn’t miss any
+     operations while in the process of recovering. Essentially a
+     two-phase commit.
+**** Replication
+     The proper behavior for Replication would have performed a single
+     operation at each of the other tuplespaces and no more. We have
+     implemented a two-phase commit to rectify this. Each server has a log
+     of entries. When a client connects and request an action, the server
+     will hold a vote request and if it receives a majority of responses in
+     the affirmative, it will proceed to multicast a vote commit message so
+     the tuplespaces can commit the entry and perform the action, and
+     finally the coordinator itself will commit the entry and perform the
+     action.
 
 ** Single-point of failure
    The first approach introduces a singular point of failure in the
@@ -179,26 +177,26 @@
 
 ** Sequential Consistency
    Both approaches had an issue with maintaining consistency between
-   the data stores. There was no consensus algorithm for coordinating
-   tuplespace operations between all of the servers. Without a
-   mechanism for consensus, our tuplespaces quickly fall into an
-   unsynchronized state. This issue arises from the fact that the
-   original architecture used a single phase commit model, wherein a
-   tuplespace would respond immediately to received events.
+   the data stores. There was no coordination of tuplespace operations
+   between the servers. Without a mechanism for consensus, our
+   tuplespaces quickly fall into an unsynchronized state. This issue
+   arises from the fact that the original architecture used a single
+   phase commit model, wherein a tuplespace would respond immediately
+   to received events.
 
-   To address this problem, we looked into two-phase commit, where in
+   To address this problem, we looked into two-phase commit, where
    operations are tentatively queued before being applied to the data
    store/state machine. This is a rather straightforward solution to
    implement, assuming a reliable communciation channel. The model we
-   based our solution off of is Raft's replicated log/replicated
-   state machine. The idea is that a single privileged node (i.e
+   based our solution off of is Raft's replicated log/replicated state
+   machine. The idea is that a single privileged node (i.e
    coordinator) determines the order of sequences seen by all the
    servers in the cluster. In the first phase, the coordinator
    disseminates the changes to all its followers, having them append
    new entries to their log. Once a majority of the servers have
    confirmed that they have received the event, the coordinator sends
-   a second round of messages, telling the followers that the entry
-   is committed. It is at this point that the individual server nodes
+   a second round of messages, telling the followers that the entry is
+   committed. It is at this point that the individual server nodes
    apply the operation in the entry to their data stores.
 
    This allows us to enforce a consistent view between all of the
@@ -216,8 +214,9 @@
   platform and have their operations replicated to every other server
   in the cluster. The server cluster should be fault tolerant, and if
   the Raft Consensus Algorithm is implemented properly, the cluster
-  should be able to tolerate (N // 2) - 1 failures. That is, if there
-  are 5 servers in a cluster, up to 2 may fail at any given time.
+  should be able to tolerate (N / 2) - 1 failures. That is, if there
+  are 5 servers in a cluster, up to 2 may fail at any given time
+  without impacting service availability.
 
 ** Raft Overview
    Servers in the cluster can take on one of three states:
@@ -269,23 +268,26 @@
   algorithm, loosely following the etcd implementation written in Go,
   when we found a Python library that supplies a raft node with an
   HTTP channel. With time limited, and running into substantial
-  problems with ZMQ sockets, we found this the most prudent course of
-  action. Vesper provides modules for initalizing a Raft cluster in a
-  known configuration (i.e view). This results in a static cluster
-  view, because each node in the cluster needs to know about all of
-  its peers at initialization. Without some additional
-  implementation, it is not possible to join the configuration in the
-  middle of its operation.
+  problems with ZMQ sockets, we decided that integrating our
+  tuplespace/adapter code with the Raft StateMachine module was
+  the most prudent course of action.
 
-  There are methods for achieving this, which are outlined in
-  Ongaro's paper. The general idea is that we cannot simply add nodes
-  into the configuration without a transitional period, as we must
-  avoid a situation where in the course of migrating over to a new
-  cluster configuration, we elect more than one leader for the same
-  term. The main problem is that server's will not switch into the
-  new configuration at the same time, so it is possible to have a
-  split majority, where one leader is elected via majority from the
-  old configuration and another leader is elected via majority of the
+  Vesper provides modules for initializing a Raft cluster in a known
+  configuration (i.e view). This results in a static cluster view,
+  because each node in the cluster needs to know about all of its
+  peers at initialization. Without some additional implementation, it
+  is not possible to join the configuration in the middle of its
+  operation.
+
+  There are methods for achieving this, which are outlined in Ongaro's
+  paper. The general idea is that we cannot simply add nodes into the
+  configuration without a transitional period, as we must avoid a
+  situation where in the course of migrating over to a new cluster
+  configuration, we elect more than one leader for the same term. The
+  main problem is that server's will not switch into the new
+  configuration at the same time, so it is possible to have a split
+  majority, where one leader is elected via majority from the old
+  configuration and another leader is elected via majority from the
   new configuration.
 
   To sidestep this issue, Ongaro uses a two-phase transition, whereby
@@ -299,10 +301,12 @@
   across all of its nodes. In order to connect this code with our
   tuplespace project, we installed a tuplespace adapter proxy inside
   the raft node, which allows the node to talk with our tuplespace
-  code. Once we connected our tuplespace, we had to modify the
-  HTTP routes to interface with our expected input and output. Once
-  this was complete, we had successfully integrated a raft consensus
-  mechanism ontop of our existing tuplespaces.
+  code. Once we connected our tuplespace, we had to modify the HTTP
+  routes to interface with our expected input and output. Once this
+  was complete, we had successfully integrated a raft consensus
+  mechanism ontop of our existing tuplespaces. We essentially use
+  Vesper as a distributed commit library for imposing sequential
+  consistency on a sequence of operations to apply to our tuplespaces.
 
 * Future Work
   The library we used for adding raft consensus to our tuplespaces is
@@ -334,9 +338,8 @@
   order to bring the election timeouts into a reasonable state on a
   wide-area network where congestion and other network problems are to
   be expected. Possible avenues of approach are to have a number of
-  retries before declaring a link dead, and another is to use
-  adaptive timeouts that take the estimated network delay into
-  account.
+  retries before declaring a link dead, and another is to use adaptive
+  timeouts that take the estimated network delay into account.
 
   Also, because we have naively attached the tuplespaces to this raft
   consensus library, there are still weakpoints in the system design.
@@ -354,7 +357,7 @@
   authentication so that only authorized users can post under specific
   usernames. This idea can be taken further by restricting the topics
   that users can post to and any other number of administrative
-  functions.
+  functions .
 * References
   [[https://raft.github.io/]]
 
