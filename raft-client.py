@@ -31,14 +31,16 @@ def redirectToLeader(server_address, message):
     # setup REQ socket
     sock = context.socket(zmq.REQ)
     # connect the socket to the server
-    print(server_address)
     sock.connect(server_address)
-    poll = zmq.Poller()
-    poll.register(sock, zmq.POLLOUT)
-    if poll.poll():
-        sock.send_json(message)
-        resp = sock.recv_json(flags=zmq.NOBLOCK)
-        return resp
+
+    resp = None
+    while not resp:
+        try:
+            sock.send_json(message)
+            resp = sock.recv_json()
+        except Exception as e:
+            print(e)
+    return resp
 
     # type = message["type"]
     # # looping until someone tells he is the leader
