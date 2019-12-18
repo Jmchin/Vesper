@@ -80,29 +80,30 @@
     recovery of tuplespaces would yield duplicate entries in its
     tuplespace.
 *** Replication problem:
-    In the replication approach the problem was more severe when it came
-    to duplicating entries. In this approach we used tuplespace managers
-    at each tuplespace that would listen for multicast traffic for ‘write’
-    and ‘take’ events. Upon of the receipts of these notification the
-    action would be taken locally (active replication) which in theory
-    would keep all the tuplespaces consistent. However, as mentioned
-    previously, there was no mechanism to distinguish entries that had
-    already been seen, no way to uniquely identify them. In turn, as soon
-    as a ‘write’ event had been performed at one tuplespace, a multicast
-    would be sent and received by the other tuplespace managers in the
-    group which would perform the operation locally. This now led to each
-    of the other tuplespaces multicasting their write event, which in turn
-    would cause them to again multicast the event after performing it, so
-    on and so forth. This led to perpetual writing in the system and
-    rendering the entire system useless as each of the processes resources
-    were being used to continuously write the same operation over and
-    over. In a similar fashion if a ‘take’ event was performed, it would
-    cause the same issue, however in this case the system would hang due
-    to the fact that the operation would quickly exhaust the tuplespaces
-    of entries matching the ‘take’ criteria and all processes would
-    eventually wait in a blocking state for a tuple to appear that would
-    match the criteria of the ‘take’ operation. This too would render the
-    system useless.
+    In the replication approach the problem was more severe when it
+    came to duplicating entries. In this approach we used tuplespace
+    managers at each tuplespace that would listen for multicast
+    traffic for ‘write’ and ‘take’ events. Upon receipt of these
+    notifications the action would be taken locally (active
+    replication) which in theory would keep all the tuplespaces
+    consistent. However, as mentioned previously, there was no
+    mechanism to distinguish entries that had already been seen, no
+    way to uniquely identify them. In turn, as soon as a ‘write’ event
+    had been performed at one tuplespace, a multicast would be sent
+    and received by the other tuplespace managers in the group which
+    would perform the operation locally. This now led to each of the
+    other tuplespaces multicasting their write event, which in turn
+    would cause them to again multicast the event after performing it,
+    so on and so forth. This led to perpetual writing in the system
+    and rendering the entire system useless as each of the processes
+    resources were being used to continuously write the same operation
+    over and over. In a similar fashion if a ‘take’ event was
+    performed, it would cause the same issue, however in this case the
+    system would hang due to the fact that the operation would quickly
+    exhaust the tuplespaces of entries matching the ‘take’ criteria
+    and all processes would eventually wait in a blocking state for a
+    tuple to appear that would match the criteria of the ‘take’
+    operation. This too would render the system useless.
 *** What triggers the problem, and how to reproduce it:
 **** Recovery Server (log file):
      The issue was triggered by performing more than one recovery. The
@@ -250,7 +251,7 @@
    a new thread for that communication with an ephemeral REQ socket.
 
 *** RPC
-    We are using zmq sockets to implement the RPC pattern for internal
+    We are using ZMQ sockets to implement the RPC pattern for internal
     raft cluster communication. When a server in the cluster
     transitions into the candidate state, they need to start an
     election. An election is started by the server node in question
@@ -351,11 +352,11 @@
   communication, the remaining side may be blocked indefinitely, even
   after the failing server recovers. We need a mechanism to time these
   threads out and to reclaim the resources. We have begun the process
-  of implementing a mechanism using zmq sockets and threads, but have
+  of implementing a mechanism using ZMQ sockets and threads, but have
   encountered significant difficulty. More time is required to pursue
   this implementation, but it seems interesting, if not worthwhile.
   Given another week, we believe we could have found a satisfactory
-  implementation using zmq for internal cluster communication.
+  implementation using ZMQ for internal cluster communication.
 
   Also, because we have naively attached the tuplespaces to this raft
   consensus library, there are still weakpoints in the system design.
