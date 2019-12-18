@@ -304,7 +304,7 @@
 
   The library we used originally replicated a simple key-value store
   across all of its nodes. In order to connect this code with our
-  tuplespace project, we installed a tuplespace adapter proxy inside
+  tuplespaces, we installed a tuplespace adapter proxy inside
   the raft node, which allows the node to talk with our tuplespace
   code. Once we connected our tuplespace, we had to modify the HTTP
   routes to interface with our expected input and output. Once this
@@ -350,7 +350,12 @@
   REQ/REP connection without having completed their portion of the
   communication, the remaining side may be blocked indefinitely, even
   after the failing server recovers. We need a mechanism to time these
-  threads out and to reclaim the resources.
+  threads out and to reclaim the resources. We have begun the process
+  of implementing a mechanism using zmq sockets and threads, but have
+  encountered significant difficulty. More time is required to pursue
+  this implementation, but it seems interesting, if not worthwhile.
+  Given another week, we believe we could have found a satisfactory
+  implementation using zmq for internal cluster communication.
 
   Also, because we have naively attached the tuplespaces to this raft
   consensus library, there are still weakpoints in the system design.

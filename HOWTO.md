@@ -10,6 +10,8 @@ pip3 install --user flask
 
 1. Navigate to `/tuplespace` directory
 
+    `cd tuplespcae`
+
 2. Initialize the tuplespaces and their adapters
 
    `foreman start -f Procfile_TS`
@@ -32,7 +34,7 @@ pip3 install --user flask
 
 7. Invoke the client to write a tuple to the raft cluster
 
-    `python3 client.py {protocol}://{address}:{port} {command} [-u]
+    `python3 client.py {protocol}://{address}:{port} {put | get} [-u]
     {user} [-t] {topic} [-m] "{message}`
 
     `python3 client.py http://127.0.0.1:5000 put -u alice -t
